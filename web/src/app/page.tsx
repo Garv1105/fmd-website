@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { DiscoveryProvider } from "@/components/discovery";
 import Hero from "@/components/hero/Hero";
-import ModelPreloader from "@/components/ModelPreloader";
 import Navbar from "@/components/nav/Navbar";
 import AiFeatures from "@/components/sections/AiFeatures";
 import ComingSoon from "@/components/sections/ComingSoon";
@@ -26,7 +25,6 @@ export const metadata: Metadata = { alternates: { canonical: "/" } };
 export default function Home() {
   return (
     <DiscoveryProvider>
-      <ModelPreloader />
       <Navbar />
       <main>
         <Hero /> {/* 01 */}

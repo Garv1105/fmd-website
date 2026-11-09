@@ -3,7 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
-  images: { qualities: [75, 92], minimumCacheTTL: 31536000 }, // optimised /_next/image copies stay cached a year
+  // AVIF first (smaller than WebP at the same look), WebP for browsers without it; copies stay cached a year
+  images: { formats: ["image/avif", "image/webp"], qualities: [75], minimumCacheTTL: 31536000 },
   devIndicators: false,
   partialPrefetching: true,
   experimental: { agentUpgrade: "security" },

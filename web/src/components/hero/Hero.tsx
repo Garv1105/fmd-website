@@ -123,6 +123,24 @@ function CinematicHero() {
   const [mascotOn, setMascotOn] = useState(false);
   const [mascotReady, setMascotReady] = useState(false);
   const onMascotReady = useCallback(() => setMascotReady(true), []);
+  // The hero mascot is the first model to load, but not before the page has painted: it's invisible until the visitor
+  // scrolls, so its 3D engine and model wait for the browser to go idle after load (or the first scroll), leaving the
+  // headline and planet to load alone. The assistant's model waits until the visitor starts scrolling.
+  const [loadMascot, setLoadMascot] = useState(false);
+  const [loadAssistant, setLoadAssistant] = useState(false);
+  useEffect(() => {
+    let idle = 0;
+    const go = () => {
+      idle = window.requestIdleCallback ? window.requestIdleCallback(() => setLoadMascot(true), { timeout: 3000 }) : window.setTimeout(() => setLoadMascot(true), 1000);
+    };
+    if (document.readyState === "complete") go();
+    else window.addEventListener("load", go, { once: true });
+    return () => {
+      window.removeEventListener("load", go);
+      if (window.cancelIdleCallback) window.cancelIdleCallback(idle);
+      else window.clearTimeout(idle);
+    };
+  }, []);
   useMotionValueEvent(p, "change", (v) => {
     const on = v > a0 + 0.02;
     if (on !== aiActive) setAiActive(on); // each flag flips only at its own threshold
@@ -132,6 +150,8 @@ function CinematicHero() {
     if (sp !== speaking) setSpeaking(sp);
     const m = v > MASCOT_KEYS[1] - 0.02 && v < PHASES.mascotOut[1] + 0.01;
     if (m !== mascotOn) setMascotOn(m);
+    if (v > 0 && !loadMascot) setLoadMascot(true);
+    if (m && !loadAssistant) setLoadAssistant(true);
   });
 
   return (
@@ -175,7 +195,7 @@ function CinematicHero() {
                 {/* a model that can't load leaves the sprite (it never reports ready) */}
                 {/* eslint-disable-next-line @next/next/no-img-element -- versioned still, same framing as this box */}
                 <Contain fallback={<img src="/models/stills/hero-sitting.webp?v=2" alt="" decoding="async" className="absolute inset-0 size-full" />}>
-                  <Mascot3D active={mascotOn} base={settled ? "Meditate" : "Fly"} rotY={rotY} onReady={onMascotReady} />
+                  {loadMascot && <Mascot3D active={mascotOn} base={settled ? "Meditate" : "Fly"} rotY={rotY} onReady={onMascotReady} />}
                 </Contain>
               </div>
               <SpeechBubble show={speaking} text="Let me take over…" />
@@ -208,7 +228,7 @@ function CinematicHero() {
           aria-hidden={!aiActive}
           className="absolute inset-x-0 top-[calc(68px+var(--stage)*0.03)] z-20 px-4"
         >
-          <HeroAssistantStage active={aiActive} />
+          <HeroAssistantStage active={aiActive} load={loadAssistant} />
         </motion.div>
       </div>
     </section>
@@ -355,10 +375,10 @@ function Earth({
       style={{ aspectRatio: `${IMG_W} / ${IMG_H}`, opacity: fade, bottom: "var(--eb)" }}
     >
       {/* unlit planet */}
-      <Image src="/img/hero/earth-4320.webp" alt="" fill quality={92} sizes="max(100vw, 135vh)" priority className="hero-earth opacity-[0.38]" />
+      <Image src="/img/hero/earth-4320.webp" alt="" fill quality={75} sizes="max(100vw, 135vh)" priority className="hero-earth opacity-[0.38]" />
       {/* lit planet + horizon light, revealed outward from the centre */}
       <motion.div className="absolute inset-0" style={{ WebkitMaskImage: mask, maskImage: mask }}>
-        <Image src="/img/hero/earth-4320.webp" alt="" fill quality={92} sizes="max(100vw, 135vh)" loading="eager" className="hero-earth" />
+        <Image src="/img/hero/earth-4320.webp" alt="" fill quality={75} sizes="max(100vw, 135vh)" loading="eager" className="hero-earth" />
         <motion.svg
           viewBox={`0 0 ${IMG_W} ${IMG_H}`}
           className="absolute inset-0 size-full"
@@ -429,7 +449,11 @@ function getSpeech(): SpeechCtor | null {
 }
 
 /** `active`: on screen (the cinematic hero shows it only once its scroll story reaches the assistant) */
-function HeroAssistantStage({ active }: { active: boolean }) {
+// eslint-disable-next-line @next/next/no-img-element -- a versioned still, cached forever
+const guideStill = <img src="/models/stills/guide.webp?v=3" alt="" decoding="async" className="size-full object-contain object-bottom" />;
+
+/** `load`: create the assistant's 3D model (until then its still picture shows); the cinematic hero waits for a scroll. */
+function HeroAssistantStage({ active, load = true }: { active: boolean; load?: boolean }) {
   const [text, setText] = useState("");
   const [listening, setListening] = useState(false);
   const rec = useRef<InstanceType<SpeechCtor> | null>(null);
@@ -701,12 +725,16 @@ function HeroAssistantStage({ active }: { active: boolean }) {
         Guidance, not diagnosis. FMD AI explains and suggests; it never books, contacts clinics or pays on your behalf.
       </p>
 
-      {/* FMD AI's mascot, floated over its place (above); if its model can't load, the guide's picture stands in */}
+      {/* FMD AI's mascot, floated over its place (above); the guide's picture stands in until the visitor scrolls, and
+          if its model can't load */}
       <motion.div style={{ x: fx, y: fy, width: fw, height: fh }} className="pointer-events-none absolute left-0 top-0 z-20">
-        {/* eslint-disable-next-line @next/next/no-img-element -- the fallback is a versioned still, cached forever */}
-        <Contain fallback={<img src="/models/stills/guide.webp?v=3" alt="" decoding="async" className="size-full object-contain object-bottom" />}>
-          <AssistantMascot mood={mood} active={active} />
-        </Contain>
+        {load ? (
+          <Contain fallback={guideStill}>
+            <AssistantMascot mood={mood} active={active} />
+          </Contain>
+        ) : (
+          guideStill
+        )}
       </motion.div>
     </div>
     </MotionConfig>

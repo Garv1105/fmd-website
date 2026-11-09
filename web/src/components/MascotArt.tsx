@@ -42,8 +42,6 @@ const MODELS: Record<string, Art> = {
  */
 const STILL_V = 3;
 const stillOf = (model: string) => `/models/stills/${model.split("/").pop()!.split("?")[0].replace(".glb", ".webp")}?v=${STILL_V}`;
-/** every model the page can show (and the walkthrough's mirrored guide): the loading screen fetches them up front */
-export const MODEL_URLS = [...new Set([...Object.values(MODELS).map((a) => a.model), M("guide-left")])];
 
 /**
  * Live canvases: once a model has appeared its canvas stays (paused while off screen), so coming back to it is instant.
@@ -70,44 +68,6 @@ function claim(id: number, key: string, visible: boolean, release: () => void) {
   }
 }
 
-/*
- * Warm-up, behind the loading screen: every box creates its canvas in turn (one at a time: canvases are heavy to set
- * up), renders its first frames and keeps a snapshot, so no model is set up while the visitor scrolls. Hidden boxes
- * (another breakpoint's layout) and models already snapped elsewhere are skipped; a box that never renders is given
- * up on after WARM_STEP.
- */
-const WARM_STEP = 6000;
-const queue: (() => void)[] = [];
-let warming = false;
-let warmTotal = 0;
-let warmDone = 0;
-let waiters: ((fraction: number) => void)[] = [];
-let ended: (() => void)[] = [];
-function warmNext() {
-  const next = queue.shift();
-  if (next) {
-    warming = true;
-    next();
-    return;
-  }
-  warming = false;
-  ended.forEach((f) => f());
-  ended = [];
-  waiters = [];
-}
-function warmStep() {
-  warmDone += 1;
-  waiters.forEach((f) => f(warmDone / Math.max(warmTotal, 1)));
-}
-/** Resolves once every box on the page has its model set up (or skipped); reports the fraction done. */
-export function warmedUp(onProgress: (fraction: number) => void = () => {}) {
-  return new Promise<void>((resolve) => {
-    if (!warming && !queue.length) return resolve();
-    waiters.push(onProgress);
-    ended.push(resolve);
-  });
-}
-
 type Props = {
   /** the artwork; it shows until the model has loaded, and stays for artwork that has no model */
   src: string;
@@ -132,14 +92,14 @@ export default function MascotArt({ src, model, sizes, className = "object-conta
   const [visible, setVisible] = useState(false);
   const [ready, setReady] = useState<string | null>(null);
   const [, snapped] = useState(0); // re-render once a snapshot exists
-  const warmTurn = useRef<(() => void) | null>(null); // set while this box is the one warming up
   const lost = useRef<() => void>(() => {}); // the browser killed this box's canvas: drop it, its picture shows
 
+  // Lazy: a box's model downloads and its canvas is created only when the box comes within 600px of the screen; its
+  // still picture stands in until then (and until the first frame renders), so nothing loads for sections never seen.
   useEffect(() => {
     if (!url || !box.current) return;
     const id = nextId++;
     const el = box.current;
-    let alive = true;
     const release = () => {
       setMounted(false);
       setReady(null);
@@ -147,27 +107,7 @@ export default function MascotArt({ src, model, sizes, className = "object-conta
     lost.current = () => {
       live.delete(id);
       release();
-      warmTurn.current?.();
     };
-    // the warm-up turn: mount the canvas off screen (paused), move on once its snapshot is taken
-    warmTotal += 1;
-    queue.push(() => {
-      const done = () => {
-        if (warmTurn.current !== done) return;
-        warmTurn.current = null;
-        warmStep();
-        requestAnimationFrame(warmNext);
-      };
-      if (!alive || live.has(id) || snapshots.has(key) || el.getBoundingClientRect().width === 0) {
-        warmStep();
-        return warmNext();
-      }
-      warmTurn.current = done;
-      setMounted(true);
-      claim(id, key, false, release);
-      setTimeout(done, WARM_STEP);
-    });
-    if (!warming) warmNext();
     const io = new IntersectionObserver(
       ([e]) => {
         setVisible(e.isIntersecting);
@@ -189,10 +129,8 @@ export default function MascotArt({ src, model, sizes, className = "object-conta
     );
     io.observe(el);
     return () => {
-      alive = false;
       io.disconnect();
       live.delete(id);
-      warmTurn.current?.();
     };
   }, [url, key]);
 
@@ -228,7 +166,6 @@ export default function MascotArt({ src, model, sizes, className = "object-conta
             onSnapshot={(d) => {
               snapshots.set(key, d);
               snapped((n) => n + 1);
-              warmTurn.current?.();
             }}
           />
           </Contain>
